@@ -1,0 +1,346 @@
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kafka
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: kafka
+  namespace: kafka
+---
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    app: kafka
+  name: kafka-headless
+  namespace: kafka
+spec:
+  clusterIP: None
+  clusterIPs:
+  - None
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: tcp-kafka-int
+    port: 9092
+    protocol: TCP
+    targetPort: tcp-kafka-int
+  - name: tcp-kafka-ctrl
+    port: 29093
+    protocol: TCP
+    targetPort: tcp-kafka-ctrl
+  selector:
+    app: kafka
+  sessionAffinity: None
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  labels:
+    app: kafka
+  name: kafka
+  namespace: kafka
+spec:
+  podManagementPolicy: Parallel
+  replicas: 3
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: kafka
+  serviceName: kafka-headless
+  template:
+    metadata:
+      labels:
+        app: kafka
+    spec:
+      serviceAccountName: kafka
+      containers:
+      - command:
+        - sh
+        - -exc
+        - |
+          export CLUSTER_ID="6PMpHYL9QkeyXRj9Nrp4KA" && \
+          export KAFKA_NODE_ID=${HOSTNAME##*-} 
+          export KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://${POD_NAME}.kafka-headless.kafka.svc.cluster.local:9092
+          export KAFKA_CONTROLLER_QUORUM_VOTERS="0@kafka-0.kafka-headless.kafka.svc.cluster.local:29093,1@kafka-1.kafka-headless.kafka.svc.cluster.local:29093,2@kafka-2.kafka-headless.kafka.svc.cluster.local:29093" 
+
+          exec /etc/confluent/docker/run
+        env:
+        - name: KAFKA_CONTROLLER_LISTENER_NAMES
+          value: "CONTROLLER"
+        - name: KAFKA_LISTENERS
+          value: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:29093
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        name: kafka
+        image: docker.io/confluentinc/confluent-local:7.5.0
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 9092
+          name: tcp-kafka-int
+          protocol: TCP
+        - containerPort: 29093
+          name: tcp-kafka-ctrl
+          protocol: TCP
+        resources:
+          limits:
+            cpu: "1"
+            memory: 1400Mi
+          requests:
+            cpu: 250m
+            memory: 512Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          capabilities:
+            drop:
+            - ALL
+          # readOnlyRootFilesystem: true
+          runAsGroup: 1000
+          runAsUser: 1000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /etc/kafka
+          name: config
+      dnsPolicy: ClusterFirst
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1000
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - emptyDir: {}
+        name: config
+  updateStrategy:
+    type: RollingUpdate
+
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: kafka
+  labels:
+    app: kafka-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: kafka-ui
+  template:
+    metadata:
+      labels:
+        app: kafka-ui
+    spec:
+      containers:
+      - name: kafka-ui
+        image: provectuslabs/kafka-ui:latest
+        ports:
+        - containerPort: 8080
+        env:
+        - name: KAFKA_CLUSTERS_0_NAME
+          value: "my-cluster"
+        - name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS
+          value: "kafka-headless.kafka.svc.cluster.local:9092"
+        - name: KAFKA_CLUSTERS_0_ZOOKEEPER
+          value: "zookeeper-headless.kafka.svc.cluster.local:2181"
+        - name: SERVER_SERVLET_CONTEXT_PATH
+          value: "/kafka-ui"
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  namespace: kafka
+  labels:
+    app: kafka-ui
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+    protocol: TCP
+  selector:
+    app: kafka-ui
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gps-tracker-producer
+  namespace: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gps-tracker-producer
+  template:
+    metadata:
+      labels:
+        app: gps-tracker-producer
+    spec:
+      containers:
+        - name: gps-tracker-producer-container
+          image: wjakobczyk/gps-tracker-producer:latest
+          ports:
+            - containerPort: 8991
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka-headless.kafka.svc.cluster.local:9092
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gps-tracker-consumer
+  namespace: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gps-tracker-consumer
+  template:
+    metadata:
+      labels:
+        app: gps-tracker-consumer
+    spec:
+      containers:
+        - name: gps-tracker-consumer-container
+          image: wjakobczyk/gps-tracker-consumer:latest
+          ports:
+            - containerPort: 8992
+          env:
+            - name: KAFKA_BOOTSTRAP_SERVERS
+              value: kafka-headless.kafka.svc.cluster.local:9092
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gps-tracker-frontend
+  namespace: kafka
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: gps-tracker-frontend
+  template:
+    metadata:
+      labels:
+        app: gps-tracker-frontend
+    spec:
+      containers:
+        - name: gps-tracker-frontend-container
+          image: wjakobczyk/gps-tracker-frontend:latest
+          ports:
+            - containerPort: 3000
+          env:
+            - name: REACT_APP_BACKEND
+              value: localhost:80
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gps-tracker-consumer
+  namespace: kafka
+spec:
+  selector:
+    app: gps-tracker-consumer
+  ports:
+    - protocol: TCP
+      port: 8992
+      targetPort: 8992
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gps-tracker-producer
+  namespace: kafka
+spec:
+  selector:
+    app: gps-tracker-producer
+  ports:
+    - protocol: TCP
+      port: 8991
+      targetPort: 8991
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gps-tracker-frontend
+  namespace: kafka
+spec:
+  selector:
+    app: gps-tracker-frontend
+  type: NodePort
+  ports:
+    - protocol: TCP
+      port: 3000 
+      targetPort: 3000 
+      nodePort: 30030 
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gps-tracker-ingress
+  namespace: kafka
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.org/websocket-services: "gateway-cluster-ip-service"
+spec:
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /api/consumer/
+            pathType: Prefix
+            backend:
+              service:
+                name: gps-tracker-consumer
+                port:
+                  number: 8992
+          - path: /api/producer/
+            pathType: Prefix
+            backend:
+              service:
+                name: gps-tracker-producer
+                port:
+                  number: 8991
+          - path: /gs-guide-websocket
+            pathType: Prefix
+            backend:
+              service:
+                name: gps-tracker-consumer
+                port:
+                  number: 8992
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gps-front-ingress
+  namespace: kafka
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+spec:
+  rules:
+    - host: localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix 
+            backend:
+              service:
+                name: gps-tracker-frontend
+                port:
+                  number: 3000
+                  
+
