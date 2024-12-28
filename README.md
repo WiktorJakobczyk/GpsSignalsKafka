@@ -1,6 +1,5 @@
 # GpsSignalsKafka
-A small demo created as part of learning Kafka and WebSockets. \
-It showcases a service for monitoring GPS signals in real time.
+A small demo created as part of learning Kafka and WebSockets, showcasing a service for real-time monitoring of GPS signals.
 
 # What is it?
 This project was created as a learning exercise for Kafka and WebSocket. It is built using two microservices developed with Spring Boot: **GpsSignalsProducer** and **GpsSignalsConsumer**.
