@@ -1,0 +1,17 @@
+[ {
+  "uuid" : "c487a0d8-ede1-4d25-b61e-f9862f271512",
+  "coords" : {
+    "latitude" : 15.5,
+    "longitude" : 25.32
+  },
+  "timestamp" : "2024-01-01T00:00:00",
+  "status" : "ACTIVE"
+}, {
+  "uuid" : "c487a0d8-ede1-4d25-b61e-f9862f271513",
+  "coords" : {
+    "latitude" : 16.5,
+    "longitude" : 26.32
+  },
+  "timestamp" : "2024-01-01T00:00:00",
+  "status" : "ACTIVE"
+} ]
